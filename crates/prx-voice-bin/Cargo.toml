@@ -1,0 +1,25 @@
+[package]
+name = "prx-voice-bin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "prx-voice"
+path = "src/main.rs"
+
+[dependencies]
+prx-voice-control = { workspace = true }
+prx-voice-event = { workspace = true }
+prx-voice-observe = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum = { workspace = true }
+
+[features]
+default = []
+sherpa = ["prx-voice-control/sherpa"]
+
+[lints]
+workspace = true

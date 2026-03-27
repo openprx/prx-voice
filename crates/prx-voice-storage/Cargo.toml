@@ -1,0 +1,27 @@
+[package]
+name = "prx-voice-storage"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+prx-voice-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true }
+parking_lot = { workspace = true }
+
+# PostgreSQL (optional feature)
+sqlx = { workspace = true, optional = true }
+
+[features]
+default = []
+postgres = ["sqlx"]
+
+[lints]
+workspace = true

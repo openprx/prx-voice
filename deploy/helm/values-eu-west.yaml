@@ -1,0 +1,16 @@
+# EU West (GDPR region)
+region:
+  name: "eu-west-1"
+  isPrimary: false
+  failoverRegion: "eu-central-1"
+
+replicaCount: 2
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 15
+
+# EU data residency
+config:
+  session:
+    defaultLanguage: "de-DE"

@@ -1,0 +1,35 @@
+# PRX Voice Engine Configuration
+# Override via environment variables with PRX_VOICE_ prefix
+# e.g., PRX_VOICE_SERVER__PORT=8080
+
+server:
+  host: "0.0.0.0"
+  port: 3000
+  cors_enabled: true
+  shutdown_timeout_sec: 30
+
+session:
+  max_duration_sec: 1800
+  max_turns: 100
+  interrupt_enabled: true
+  default_language: "en-US"
+  vad_sensitivity: 0.5
+
+adapters:
+  # Options: mock, deepgram
+  default_asr_provider: "mock"
+  # Options: mock, openai
+  default_agent_provider: "mock"
+  # Options: mock, azure
+  default_tts_provider: "mock"
+
+logging:
+  # trace, debug, info, warn, error
+  level: "info"
+  # json, pretty
+  format: "json"
+
+limits:
+  default_max_concurrent_sessions: 100
+  event_bus_capacity: 4096
+  api_rate_limit_per_min: 300

@@ -1,0 +1,19 @@
+[package]
+name = "prx-voice-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+prx-voice-types = { workspace = true }
+prx-voice-state = { workspace = true }
+prx-voice-event = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+config = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+
+[lints]
+workspace = true

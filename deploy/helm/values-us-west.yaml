@@ -1,0 +1,11 @@
+# US West (Secondary / DR)
+region:
+  name: "us-west-2"
+  isPrimary: false
+  failoverRegion: "us-east-1"
+
+replicaCount: 2
+
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 20

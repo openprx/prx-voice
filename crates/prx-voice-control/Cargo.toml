@@ -1,0 +1,40 @@
+[package]
+name = "prx-voice-control"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+prx-voice-types = { workspace = true }
+prx-voice-state = { workspace = true }
+prx-voice-event = { workspace = true }
+prx-voice-adapter = { workspace = true }
+prx-voice-session = { workspace = true }
+prx-voice-observe = { workspace = true }
+prx-voice-audit = { workspace = true }
+prx-voice-billing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["sync"] }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+futures-util = { workspace = true }
+reqwest = { workspace = true, features = ["stream"] }
+thiserror = { workspace = true }
+parking_lot = { workspace = true }
+async-trait = { workspace = true }
+
+[features]
+default = []
+sherpa = ["prx-voice-session/sherpa"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+axum-test = "16"
+
+[lints]
+workspace = true

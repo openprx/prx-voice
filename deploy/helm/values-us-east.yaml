@@ -1,0 +1,11 @@
+# US East (Primary)
+region:
+  name: "us-east-1"
+  isPrimary: true
+  failoverRegion: "us-west-2"
+
+replicaCount: 3
+
+autoscaling:
+  minReplicas: 3
+  maxReplicas: 30

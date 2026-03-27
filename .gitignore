@@ -1,0 +1,30 @@
+# Build artifacts
+/target/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Models (large binary files — download separately)
+/models/
+
+# Web console build artifacts and dependencies
+/web-console/node_modules/
+/web-console/dist/
+/web-console/tsconfig.tsbuildinfo
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# OS
+Thumbs.db
+
+# Logs
+*.log

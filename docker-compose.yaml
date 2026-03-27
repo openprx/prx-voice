@@ -1,0 +1,23 @@
+version: "3.8"
+
+services:
+  prx-voice:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - PRX_VOICE_SERVER__PORT=3000
+      - PRX_VOICE_LOGGING__LEVEL=info
+      # Uncomment and set for real adapters:
+      # - DEEPGRAM_API_KEY=your-key-here
+      # - OPENAI_API_KEY=your-key-here
+      # - AZURE_SPEECH_KEY=your-key-here
+      # - AZURE_SPEECH_REGION=eastus
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/v1/health/live"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

@@ -1,0 +1,24 @@
+[package]
+name = "prx-voice-integration-tests"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dev-dependencies]
+prx-voice-types = { workspace = true }
+prx-voice-state = { workspace = true }
+prx-voice-event = { workspace = true }
+prx-voice-adapter = { workspace = true }
+prx-voice-session = { workspace = true }
+prx-voice-transport = { workspace = true }
+prx-voice-control = { workspace = true }
+prx-voice-policy = { workspace = true }
+prx-voice-audit = { workspace = true }
+prx-voice-billing = { workspace = true }
+prx-voice-observe = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

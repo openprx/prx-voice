@@ -1,0 +1,12 @@
+apiVersion: v2
+name: prx-voice
+description: PRX Voice Engine — Industrial-grade real-time voice AI platform
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - voice
+  - sip
+  - voip
+  - ai
+  - speech
