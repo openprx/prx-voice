@@ -1,4 +1,5 @@
 use prx_voice_control::api;
+use prx_voice_control::health_task;
 use prx_voice_control::state::AppState;
 use prx_voice_event::bus::{EventBus, EventBusConfig};
 use prx_voice_observe::metrics::MetricsRegistry;
@@ -20,6 +21,13 @@ async fn main() {
     let event_bus = EventBus::new(EventBusConfig { capacity: 4096 });
     let metrics = Arc::new(MetricsRegistry::new());
     let state = AppState::new(event_bus, metrics);
+
+    // Spawn background health-check loop for dead connections and zombie sessions.
+    tokio::spawn(health_task::run_health_check_loop(
+        Arc::clone(&state.conn_mgr),
+        state.clone(),
+    ));
+
     let app = api::router(state);
 
     let host = std::env::var("PRX_VOICE_HOST").unwrap_or_else(|_| "0.0.0.0".into());

@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::connection::ConnectionManager;
+
 /// Shared application state.
 #[derive(Clone)]
 pub struct AppState {
@@ -21,6 +23,8 @@ pub struct AppState {
     pub billing: Arc<BillingLedger>,
     /// Idempotency key store: maps idempotency key to the session ID that was created.
     pub idempotency: Arc<RwLock<HashMap<String, String>>>,
+    /// Persistent connection manager.
+    pub conn_mgr: Arc<ConnectionManager>,
 }
 
 impl AppState {
@@ -32,6 +36,7 @@ impl AppState {
             audit: Arc::new(AuditStore::new()),
             billing: Arc::new(BillingLedger::new()),
             idempotency: Arc::new(RwLock::new(HashMap::new())),
+            conn_mgr: Arc::new(ConnectionManager::new()),
         }
     }
 }

@@ -77,6 +77,10 @@ define_id!(
     SpanId, "span"
 );
 define_id!(
+    /// Unique persistent connection identifier.
+    ConnId, "conn"
+);
+define_id!(
     /// Unique speech utterance identifier.
     SpeechId, "utt"
 );

@@ -62,6 +62,7 @@ config = "0.15"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 tokio-tungstenite = { version = "0.26", features = ["native-tls"] }
 futures-util = "0.3"
+tokio-util = "0.7"
 
 [workspace.lints.rust]
 dead_code = "warn"

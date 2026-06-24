@@ -19,13 +19,17 @@ use prx_voice_audit::store::AuditQuery;
 use prx_voice_event::bus::EventBus;
 use prx_voice_session::config::SessionConfig;
 use prx_voice_session::orchestrator::SessionOrchestrator;
-use prx_voice_types::ids::{SessionId, TenantId};
+use prx_voice_types::ids::{ConnId, SessionId, TenantId};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
+use std::time::Instant;
 use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
-use tracing::error;
+use tracing::{error, warn, info};
 use uuid::Uuid;
+
+use crate::connection::ConnectionMeta;
 
 static RATE_LIMITER: LazyLock<RateLimiter> = LazyLock::new(|| {
     RateLimiter::new(RateLimitConfig {
@@ -154,6 +158,7 @@ pub fn router(state: AppState) -> Router {
             "/api/v1/sessions/{session_id}/stream",
             get(session_stream_ws),
         )
+        .route("/api/v1/stream", get(unified_stream_ws))
         .route("/api/v1/audit", get(list_audit))
         .route("/api/v1/billing/summary", get(billing_summary))
         .route("/api/v1/health", get(health))
@@ -997,6 +1002,23 @@ async fn streaming_turn(
     translate: bool,
     clone_speaker: Option<String>,
 ) {
+    streaming_turn_inner(sink, orch, http, user_text, translate, clone_speaker, None).await;
+}
+
+/// Inner implementation with optional binary-frame session ID prefix.
+///
+/// When `sid_prefix` is `Some`, every TTS binary frame is prefixed with the
+/// 36-byte UUID hex so the client can route audio to the correct session.
+/// Legacy per-session WebSocket callers pass `None` (no prefix needed).
+async fn streaming_turn_inner(
+    sink: &Arc<tokio::sync::Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
+    orch: &Arc<tokio::sync::Mutex<SessionOrchestrator>>,
+    http: &reqwest::Client,
+    user_text: String,
+    translate: bool,
+    clone_speaker: Option<String>,
+    sid_prefix: Option<String>,
+) {
     // Phase 1: Update orchestrator state (Listening → … → Thinking)
     {
         let mut o = orch.lock().await;
@@ -1100,7 +1122,7 @@ async fn streaming_turn(
                             // Check for sentence boundary to trigger TTS
                             if has_sentence_boundary(&sentence_buf) {
                                 let sentence = std::mem::take(&mut sentence_buf);
-                                tts_and_stream(sink, http, &sentence, translate, &clone_speaker).await;
+                                tts_and_stream(sink, http, &sentence, translate, &clone_speaker, &sid_prefix).await;
                             }
                         }
                     }
@@ -1115,7 +1137,7 @@ async fn streaming_turn(
 
     // TTS any remaining text
     if !sentence_buf.is_empty() {
-        tts_and_stream(sink, http, &sentence_buf, translate, &clone_speaker).await;
+        tts_and_stream(sink, http, &sentence_buf, translate, &clone_speaker, &sid_prefix).await;
     }
 
     // Signal response complete
@@ -1141,12 +1163,16 @@ fn has_sentence_boundary(text: &str) -> bool {
 
 /// Call HTTP TTS server and stream PCM16 audio back to WebSocket client.
 /// Routes to: clone server (:8768) if speaker set, EN TTS (:8767) if translate, else ZH TTS (:8766).
+///
+/// When `sid_prefix` is `Some`, each binary frame is prefixed with the 36-byte
+/// UUID hex so the unified-stream client can demux audio by session.
 async fn tts_and_stream(
     sink: &Arc<tokio::sync::Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
     http: &reqwest::Client,
     text: &str,
     translate: bool,
     clone_speaker: &Option<String>,
+    sid_prefix: &Option<String>,
 ) {
     // Route to appropriate TTS server
     let use_clone = clone_speaker.as_ref().is_some_and(|s| !s.is_empty());
@@ -1189,8 +1215,17 @@ async fn tts_and_stream(
 
     let chunk_bytes = 16000 * 2 / 5; // 200ms at 16kHz, 16-bit = 6400 bytes
     for chunk in audio_bytes.chunks(chunk_bytes) {
+        let frame = if let Some(prefix) = sid_prefix {
+            // Prepend 36-byte UUID hex so client can route by session.
+            let mut buf = Vec::with_capacity(prefix.len() + chunk.len());
+            buf.extend_from_slice(prefix.as_bytes());
+            buf.extend_from_slice(chunk);
+            buf
+        } else {
+            chunk.to_vec()
+        };
         let mut s = sink.lock().await;
-        if s.send(Message::Binary(chunk.to_vec().into())).await.is_err() {
+        if s.send(Message::Binary(frame.into())).await.is_err() {
             break;
         }
     }
@@ -1423,9 +1458,546 @@ async fn health_ready() -> StatusCode {
     StatusCode::OK
 }
 
+// ---------------------------------------------------------------------------
+// Unified persistent WebSocket: /api/v1/stream
+// ---------------------------------------------------------------------------
+
+/// WebSocket upgrade handler for the unified persistent connection.
+async fn unified_stream_ws(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    ws: WebSocketUpgrade,
+) -> impl IntoResponse {
+    let tenant_id = headers
+        .get("x-tenant-id")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| {
+            let uuid = Uuid::parse_str(s.strip_prefix("tenant-").unwrap_or(s)).ok()?;
+            Some(TenantId::from_uuid(uuid))
+        })
+        .unwrap_or_else(TenantId::new);
+
+    let client_id = headers
+        .get("x-client-id")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+
+    // If no client_id provided, generate one (no dedup).
+    let client_id = if client_id.is_empty() {
+        Uuid::new_v4().to_string()
+    } else {
+        client_id
+    };
+
+    ws.on_upgrade(move |socket| {
+        handle_unified_stream(socket, state, tenant_id, client_id)
+    })
+    .into_response()
+}
+
+/// Per-session state held by the unified stream handler.
+struct SessionStreamState {
+    audio_buffer: Vec<u8>,
+    translate_mode: bool,
+    clone_mode: bool,
+    clone_speaker: String,
+}
+
+/// Main handler for the unified persistent WebSocket connection.
+async fn handle_unified_stream(
+    socket: WebSocket,
+    state: AppState,
+    tenant_id: TenantId,
+    client_id: String,
+) {
+    let (ws_sink, mut ws_stream) = socket.split();
+    let sink = Arc::new(tokio::sync::Mutex::new(ws_sink));
+
+    let conn_id = ConnId::new();
+    let cancel = tokio_util::sync::CancellationToken::new();
+
+    // Register connection with the manager.
+    let meta = ConnectionMeta {
+        conn_id,
+        tenant_id,
+        client_id: client_id.clone(),
+        active_sessions: std::collections::HashSet::new(),
+        last_client_activity: Instant::now(),
+        created_at: Instant::now(),
+        cancel: cancel.clone(),
+    };
+
+    if let Some(evicted) = state.conn_mgr.register(meta) {
+        info!(%conn_id, %evicted, "evicted old connection for client {client_id}");
+    }
+
+    // Send connected message.
+    ws_send_json(&sink, serde_json::json!({
+        "type": "connected",
+        "conn_id": conn_id.to_string(),
+        "heartbeat_interval_ms": 10000,
+        "server_time": chrono::Utc::now().to_rfc3339(),
+    }))
+    .await;
+
+    // Per-session local state (audio buffers, mode flags).
+    let session_states: Arc<tokio::sync::Mutex<HashMap<SessionId, SessionStreamState>>> =
+        Arc::new(tokio::sync::Mutex::new(HashMap::new()));
+
+    let http_client = reqwest::Client::new();
+
+    // Pre-init ASR engine once for this connection.
+    use prx_voice_adapter::local::engine::{AsrEngineConfig, HttpAsrEngine, LocalAsrEngine};
+    let asr_engine = Arc::new(tokio::sync::Mutex::new(HttpAsrEngine::new(
+        "http://localhost:8765",
+    )));
+    {
+        let config = AsrEngineConfig {
+            engine: "http".into(),
+            model_path: None,
+            language: "zh-CN".into(),
+            sample_rate: 16000,
+            streaming: true,
+        };
+        let mut eng = asr_engine.lock().await;
+        if let Err(e) = eng.init(&config).await {
+            warn!(error = %e, "HTTP ASR engine init failed");
+        }
+    }
+
+    // Task: forward events + server-side heartbeat ping.
+    let event_task = {
+        let sink = sink.clone();
+        let conn_mgr = Arc::clone(&state.conn_mgr);
+        let cancel = cancel.clone();
+        let mut event_sub = state.event_bus.subscribe();
+        tokio::spawn(async move {
+            let mut server_ping = interval(Duration::from_secs(10));
+            loop {
+                tokio::select! {
+                    _ = cancel.cancelled() => break,
+                    event = event_sub.recv() => {
+                        match event {
+                            Some(evt) => {
+                                let sessions = conn_mgr.active_sessions(&conn_id);
+                                if sessions.contains(&evt.prx_session_id) {
+                                    ws_send_json(&sink, serde_json::json!({
+                                        "type": "event",
+                                        "sid": evt.prx_session_id.to_string(),
+                                        "seq": evt.prx_seq,
+                                        "event_type": evt.event_type,
+                                        "data": evt.data,
+                                        "timestamp": evt.time.to_rfc3339(),
+                                    })).await;
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                    _ = server_ping.tick() => {
+                        ws_send_json(&sink, serde_json::json!({
+                            "type": "ping",
+                            "ts": chrono::Utc::now().to_rfc3339(),
+                        })).await;
+                    }
+                }
+            }
+        })
+    };
+
+    // Main loop: process client messages.
+    loop {
+        tokio::select! {
+            _ = cancel.cancelled() => break,
+            msg_opt = ws_stream.next() => {
+                let msg_result = match msg_opt {
+                    Some(r) => r,
+                    None => break,
+                };
+                match msg_result {
+                    Ok(Message::Text(text)) => {
+                        // Any message from client proves liveness.
+                        state.conn_mgr.record_client_activity(&conn_id);
+
+                        let cmd: serde_json::Value = match serde_json::from_str(&text) {
+                            Ok(v) => v,
+                            Err(_) => continue,
+                        };
+                        let cmd_type = cmd.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+                        match cmd_type {
+                            "ping" => {
+                                ws_send_json(&sink, serde_json::json!({
+                                    "type": "pong",
+                                    "ts": chrono::Utc::now().to_rfc3339(),
+                                })).await;
+                            }
+                            "pong" => {
+                                // Client responded to our ping — already recorded activity above.
+                            }
+                            "create_session" => {
+                                handle_stream_create_session(
+                                    &cmd, &state, &conn_id, tenant_id, &sink,
+                                    &session_states,
+                                ).await;
+                            }
+                            "close_session" => {
+                                handle_stream_close_session(
+                                    &cmd, &state, &conn_id, &sink, &session_states,
+                                ).await;
+                                // DO NOT break — connection stays open.
+                            }
+                            "audio_start" => {
+                                if let Some(sid) = parse_sid_from_cmd(&cmd) {
+                                    let mut states = session_states.lock().await;
+                                    if let Some(ss) = states.get_mut(&sid) {
+                                        ss.audio_buffer.clear();
+                                        ws_send_json(&sink, serde_json::json!({
+                                            "type": "status", "sid": sid.to_string(),
+                                            "status": "recording"
+                                        })).await;
+                                    }
+                                }
+                            }
+                            "audio_end" => {
+                                if let Some(sid) = parse_sid_from_cmd(&cmd) {
+                                    handle_stream_audio_end(
+                                        sid, &state, &sink, &session_states,
+                                        &asr_engine, &http_client,
+                                    ).await;
+                                }
+                            }
+                            "text" => {
+                                if let Some(sid) = parse_sid_from_cmd(&cmd) {
+                                    let user_text = cmd.get("text")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string();
+                                    if user_text.is_empty() { continue; }
+
+                                    let (translate, clone_spk) = {
+                                        let states = session_states.lock().await;
+                                        if let Some(ss) = states.get(&sid) {
+                                            (ss.translate_mode,
+                                             if ss.clone_mode { Some(ss.clone_speaker.clone()) } else { None })
+                                        } else {
+                                            continue;
+                                        }
+                                    };
+
+                                    let orch_arc = {
+                                        let sessions = state.sessions.read();
+                                        sessions.get(&sid).cloned()
+                                    };
+                                    if let Some(orch_arc) = orch_arc {
+                                        let prefix = Some(sid.as_uuid().to_string());
+                                        streaming_turn_inner(
+                                            &sink, &orch_arc, &http_client, user_text,
+                                            translate, clone_spk, prefix,
+                                        ).await;
+                                    }
+                                }
+                            }
+                            "interrupt" => {
+                                if let Some(sid) = parse_sid_from_cmd(&cmd) {
+                                    let orch_arc = {
+                                        let sessions = state.sessions.read();
+                                        sessions.get(&sid).cloned()
+                                    };
+                                    if let Some(orch_arc) = orch_arc {
+                                        let mut o = orch_arc.lock().await;
+                                        let _ = o.interrupt().await;
+                                        ws_send_json(&sink, serde_json::json!({
+                                            "type": "status", "sid": sid.to_string(),
+                                            "status": "interrupted"
+                                        })).await;
+                                    }
+                                }
+                            }
+                            "set_translate" => {
+                                if let Some(sid) = parse_sid_from_cmd(&cmd) {
+                                    let enabled = cmd.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let mut states = session_states.lock().await;
+                                    if let Some(ss) = states.get_mut(&sid) {
+                                        ss.translate_mode = enabled;
+                                    }
+                                    ws_send_json(&sink, serde_json::json!({
+                                        "type": "status", "sid": sid.to_string(),
+                                        "status": if enabled { "translate_on" } else { "translate_off" }
+                                    })).await;
+                                }
+                            }
+                            "set_clone" => {
+                                if let Some(sid) = parse_sid_from_cmd(&cmd) {
+                                    let enabled = cmd.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false);
+                                    let speaker = cmd.get("speaker").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                    let mut states = session_states.lock().await;
+                                    if let Some(ss) = states.get_mut(&sid) {
+                                        ss.clone_mode = enabled;
+                                        if !speaker.is_empty() {
+                                            ss.clone_speaker = speaker;
+                                        }
+                                    }
+                                    ws_send_json(&sink, serde_json::json!({
+                                        "type": "status", "sid": sid.to_string(),
+                                        "status": if enabled { "clone_on" } else { "clone_off" }
+                                    })).await;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    Ok(Message::Binary(data)) => {
+                        // Binary frame: [36-byte UUID hex][PCM16 audio data]
+                        state.conn_mgr.record_client_activity(&conn_id);
+
+                        if data.len() < 36 { continue; }
+                        let sid_hex = match std::str::from_utf8(&data[..36]) {
+                            Ok(s) => s,
+                            Err(_) => continue,
+                        };
+                        if let Some(sid) = parse_session_id_from_uuid_hex(sid_hex) {
+                            let audio = &data[36..];
+                            let mut states = session_states.lock().await;
+                            if let Some(ss) = states.get_mut(&sid) {
+                                if ss.audio_buffer.len() + audio.len() < 10 * 1024 * 1024 {
+                                    ss.audio_buffer.extend_from_slice(audio);
+                                }
+                            }
+                        }
+                    }
+                    Ok(Message::Close(_)) | Err(_) => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // Cleanup: cancel background tasks and unregister connection.
+    event_task.abort();
+    let orphaned = state.conn_mgr.remove_connection(&conn_id);
+    for sid in orphaned {
+        let orch_arc = { state.sessions.read().get(&sid).cloned() };
+        if let Some(orch_arc) = orch_arc {
+            let mut orch = orch_arc.lock().await;
+            let _ = orch.close("connection_closed").await;
+        }
+        state.sessions.write().remove(&sid);
+    }
+    let mut s = sink.lock().await;
+    let _ = s.close().await;
+}
+
+/// Handle `create_session` command on the unified stream.
+async fn handle_stream_create_session(
+    cmd: &serde_json::Value,
+    state: &AppState,
+    conn_id: &ConnId,
+    tenant_id: TenantId,
+    sink: &Arc<tokio::sync::Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
+    session_states: &Arc<tokio::sync::Mutex<HashMap<SessionId, SessionStreamState>>>,
+) {
+    let req_id = cmd.get("req_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let channel = cmd.get("channel").and_then(|v| v.as_str()).unwrap_or("app_sdk").to_string();
+    let language = cmd.get("language").and_then(|v| v.as_str()).unwrap_or("zh-CN").to_string();
+
+    let default_providers = vec!["mock".to_string()];
+    let asr_providers: Vec<String> = cmd
+        .get("asr_providers")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_else(|| default_providers.clone());
+    let agent_providers: Vec<String> = cmd
+        .get("agent_providers")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_else(|| default_providers.clone());
+    let tts_providers: Vec<String> = cmd
+        .get("tts_providers")
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or(default_providers);
+
+    let asr = factory::create_asr_with_fallback(&asr_providers);
+    let agent = factory::create_agent_with_fallback(&agent_providers);
+    let tts = factory::create_tts_with_fallback(&tts_providers);
+
+    let mut config = SessionConfig::default();
+    config.channel = channel;
+    config.language = language.clone();
+
+    let mut orch = SessionOrchestrator::new(
+        tenant_id,
+        config,
+        asr,
+        agent,
+        tts,
+        state.event_bus.clone(),
+        Arc::clone(&state.metrics),
+    );
+    let session_id = orch.session_id();
+
+    if let Err(e) = orch.start().await {
+        error!(%session_id, error = %e, "failed to start session on unified stream");
+        ws_send_json(sink, serde_json::json!({
+            "type": "session_error",
+            "req_id": req_id,
+            "code": "SESSION_CREATE_FAILED",
+            "message": e.to_string(),
+            "recoverable": false,
+        })).await;
+        return;
+    }
+
+    let info_state = orch.state().to_string();
+    state
+        .sessions
+        .write()
+        .insert(session_id, Arc::new(Mutex::new(orch)));
+    state.conn_mgr.bind_session(conn_id, session_id);
+
+    // Initialize per-session stream state.
+    session_states.lock().await.insert(session_id, SessionStreamState {
+        audio_buffer: Vec::new(),
+        translate_mode: false,
+        clone_mode: false,
+        clone_speaker: String::new(),
+    });
+
+    state.audit.append(AuditRecord::new(
+        "api",
+        PrincipalType::System,
+        AuditAction::SessionCreated,
+        "session",
+        &session_id.to_string(),
+        AuditOutcome::Success,
+    ));
+
+    ws_send_json(sink, serde_json::json!({
+        "type": "session_created",
+        "req_id": req_id,
+        "sid": session_id.to_string(),
+        "state": info_state,
+    })).await;
+}
+
+/// Handle `close_session` command on the unified stream.
+async fn handle_stream_close_session(
+    cmd: &serde_json::Value,
+    state: &AppState,
+    _conn_id: &ConnId,
+    sink: &Arc<tokio::sync::Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
+    session_states: &Arc<tokio::sync::Mutex<HashMap<SessionId, SessionStreamState>>>,
+) {
+    let Some(sid) = parse_sid_from_cmd(cmd) else { return };
+    let reason = cmd.get("reason").and_then(|v| v.as_str()).unwrap_or("user_ended");
+
+    let orch_arc = { state.sessions.read().get(&sid).cloned() };
+    if let Some(orch_arc) = orch_arc {
+        let mut orch = orch_arc.lock().await;
+        let _ = orch.close(reason).await;
+    }
+
+    state.sessions.write().remove(&sid);
+    state.conn_mgr.unbind_session(&sid);
+    session_states.lock().await.remove(&sid);
+
+    ws_send_json(sink, serde_json::json!({
+        "type": "session_closed",
+        "sid": sid.to_string(),
+        "reason": reason,
+    })).await;
+}
+
+/// Handle `audio_end` on the unified stream — ASR + streaming turn.
+async fn handle_stream_audio_end(
+    sid: SessionId,
+    state: &AppState,
+    sink: &Arc<tokio::sync::Mutex<futures_util::stream::SplitSink<WebSocket, Message>>>,
+    session_states: &Arc<tokio::sync::Mutex<HashMap<SessionId, SessionStreamState>>>,
+    asr_engine: &Arc<tokio::sync::Mutex<prx_voice_adapter::local::engine::HttpAsrEngine>>,
+    http_client: &reqwest::Client,
+) {
+    use prx_voice_adapter::local::engine::{AsrAudioInput, LocalAsrEngine};
+
+    let (audio, translate, clone_spk) = {
+        let mut states = session_states.lock().await;
+        let Some(ss) = states.get_mut(&sid) else { return };
+        let audio = std::mem::take(&mut ss.audio_buffer);
+        (audio, ss.translate_mode, if ss.clone_mode { Some(ss.clone_speaker.clone()) } else { None })
+    };
+
+    if audio.is_empty() {
+        ws_send_json(sink, serde_json::json!({
+            "type": "error", "sid": sid.to_string(), "message": "No audio received"
+        })).await;
+        return;
+    }
+
+    ws_send_json(sink, serde_json::json!({
+        "type": "status", "sid": sid.to_string(), "status": "thinking"
+    })).await;
+
+    // ASR
+    let pcm: Vec<i16> = audio
+        .chunks_exact(2)
+        .map(|c| i16::from_le_bytes([c[0], c[1]]))
+        .collect();
+    let input = AsrAudioInput {
+        pcm_data: pcm,
+        sample_rate: 16000,
+    };
+
+    let asr_text = {
+        let mut eng = asr_engine.lock().await;
+        let _ = eng.process_audio(&input);
+        let text = eng
+            .finalize_async()
+            .await
+            .ok()
+            .flatten()
+            .map(|r| r.text)
+            .unwrap_or_default();
+        eng.reset();
+        text
+    };
+
+    if asr_text.trim().is_empty() || asr_text == "(未识别到语音)" {
+        ws_send_json(sink, serde_json::json!({"type": "no_speech", "sid": sid.to_string()})).await;
+        ws_send_json(sink, serde_json::json!({
+            "type": "status", "sid": sid.to_string(), "status": "listening"
+        })).await;
+        return;
+    }
+
+    ws_send_json(sink, serde_json::json!({
+        "type": "transcript", "sid": sid.to_string(), "text": &asr_text
+    })).await;
+
+    let orch_arc = {
+        let sessions = state.sessions.read();
+        sessions.get(&sid).cloned()
+    };
+    if let Some(orch_arc) = orch_arc {
+        let prefix = Some(sid.as_uuid().to_string());
+        streaming_turn_inner(sink, &orch_arc, http_client, asr_text, translate, clone_spk, prefix).await;
+    }
+}
+
+/// Parse a SessionId from the "sid" field of a JSON command.
+fn parse_sid_from_cmd(cmd: &serde_json::Value) -> Option<SessionId> {
+    let sid_str = cmd.get("sid").and_then(|v| v.as_str())?;
+    parse_session_id(sid_str)
+}
+
+/// Parse a SessionId from a raw UUID hex string (no prefix).
+fn parse_session_id_from_uuid_hex(hex: &str) -> Option<SessionId> {
+    let uuid = Uuid::parse_str(hex).ok()?;
+    Some(SessionId::from_uuid(uuid))
+}
+
 /// Parse session ID from the prefixed string format "sess-{uuid}".
 fn parse_session_id(s: &str) -> Option<SessionId> {
-    let uuid_str = s.strip_prefix("sess-")?;
+    // Support both "sess-{uuid}" and raw "{uuid}" formats.
+    let uuid_str = s.strip_prefix("sess-").unwrap_or(s);
     let uuid = Uuid::parse_str(uuid_str).ok()?;
     Some(SessionId::from_uuid(uuid))
 }

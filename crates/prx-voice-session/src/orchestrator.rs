@@ -13,6 +13,7 @@ use prx_voice_state::transition::{SessionState, TransitionResult, Trigger};
 use prx_voice_types::ids::*;
 use serde_json::json;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use tracing::{info, warn};
 
@@ -44,6 +45,8 @@ pub struct SessionOrchestrator {
     current_turn: TurnId,
     seq_counter: u64,
     conversation_history: Vec<ConversationTurn>,
+    /// When the current state was entered (for timeout enforcement / zombie detection).
+    state_entered_at: Instant,
 
     // Adapters
     asr: Arc<Mutex<Box<dyn AsrAdapter>>>,
@@ -76,6 +79,7 @@ impl SessionOrchestrator {
             current_turn: TurnId::first(),
             seq_counter: 0,
             conversation_history: Vec::new(),
+            state_entered_at: Instant::now(),
             config,
             asr: Arc::new(Mutex::new(asr)),
             agent: Arc::new(Mutex::new(agent)),
@@ -121,10 +125,21 @@ impl SessionOrchestrator {
         self.event_bus.publish(event);
     }
 
+    /// How long the session has been in its current state.
+    pub fn state_age(&self) -> Duration {
+        self.state_entered_at.elapsed()
+    }
+
+    /// Get the timeout duration for the current state, if any.
+    pub fn timeout_for_current_state(&self) -> Option<Duration> {
+        self.config.timeouts.timeout_for_state(self.state())
+    }
+
     fn apply_trigger(&mut self, trigger: Trigger) -> Result<SessionState, OrchestratorError> {
         let result = self.state_machine.apply(trigger.clone());
         match result {
             TransitionResult::Transitioned { from, to, .. } => {
+                self.state_entered_at = Instant::now();
                 self.emit_event(
                     event_types::SESSION_STATE_CHANGED,
                     Severity::Info,

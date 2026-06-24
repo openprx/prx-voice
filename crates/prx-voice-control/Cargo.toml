@@ -27,6 +27,7 @@ reqwest = { workspace = true, features = ["stream"] }
 thiserror = { workspace = true }
 parking_lot = { workspace = true }
 async-trait = { workspace = true }
+tokio-util = { workspace = true }
 
 [features]
 default = []

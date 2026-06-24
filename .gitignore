@@ -28,3 +28,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local-only files (not published)
+CLAUDE.md
