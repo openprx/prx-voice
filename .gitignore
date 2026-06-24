@@ -9,8 +9,11 @@
 *~
 .DS_Store
 
-# Models (large binary files — download separately)
-/models/
+# Models — ignore large binaries and downloaded model dirs,
+# but keep the server scripts that live under models/
+/models/*
+!/models/*.py
+!/models/*.sh
 
 # Web console build artifacts and dependencies
 /web-console/node_modules/
