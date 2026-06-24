@@ -64,7 +64,7 @@ impl AsrAdapter for LocalAsr {
             let mut stream_engine: Box<dyn LocalAsrEngine> = if config.engine == "sherpa" {
                 Box::new(SherpaAsrEngine::new())
             } else {
-                Box::new(StubAsrEngine::new("你好"))
+                Box::new(StubAsrEngine::new("hello"))
             };
             if stream_engine.init(&config).await.is_err() {
                 return;

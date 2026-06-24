@@ -20,7 +20,7 @@ impl Default for MockAgentConfig {
     fn default() -> Self {
         Self {
             first_token_latency_ms: 200,
-            response_text: "你好！有什么可以帮你的吗？".into(),
+            response_text: "Hello! How can I help you?".into(),
             inject_error: false,
         }
     }

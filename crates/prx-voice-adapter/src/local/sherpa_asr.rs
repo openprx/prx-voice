@@ -122,7 +122,7 @@ impl LocalAsrEngine for SherpaAsrEngine {
             // Stub: return partial after accumulating enough audio
             self.buffer.clear();
             return Ok(Some(AsrEngineResult {
-                text: "(语音识别未启用)".into(),
+                text: "(speech recognition not enabled)".into(),
                 is_final: false,
                 confidence: 0.5,
                 language: "zh-CN".into(),
@@ -162,7 +162,7 @@ impl LocalAsrEngine for SherpaAsrEngine {
         {
             self.buffer.clear();
             return Ok(Some(AsrEngineResult {
-                text: "(未识别到语音)".into(),
+                text: "(no speech recognized)".into(),
                 is_final: true,
                 confidence: 0.0,
                 language: "zh-CN".into(),

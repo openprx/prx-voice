@@ -32,7 +32,7 @@ impl Default for OllamaConfig {
             max_tokens: 1024,
             temperature: 0.7,
             system_prompt: Some(
-                "你是一个语音助手。请始终用中文回答，回答要简洁自然，像正常对话一样。".into(),
+                "You are a voice assistant. Always reply in Chinese, keeping answers concise and natural, like a normal conversation.".into(),
             ),
         }
     }

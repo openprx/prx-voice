@@ -24,7 +24,7 @@ impl Default for MockAsrConfig {
     fn default() -> Self {
         Self {
             latency_ms: 300,
-            transcript: "你好".into(),
+            transcript: "hello".into(),
             confidence: 0.96,
             language: "zh-CN".into(),
             inject_error: false,

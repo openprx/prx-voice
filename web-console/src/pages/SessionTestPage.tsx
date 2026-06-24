@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { api } from '../api/client'
-import { useLocale } from '../hooks/useLocale'
+import { t } from '../i18n'
 import type { SessionInfo } from '../types/api'
 
 interface ChatMessage {
@@ -20,7 +20,6 @@ const SILENCE_DURATION_MS = 1200 // 1.2s silence = end of speech
 const SPEECH_MIN_MS = 300 // minimum speech duration before accepting
 
 export function SessionTestPage() {
-  const { t: _t } = useLocale()
   const [_session, setSession] = useState<SessionInfo | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [events, setEvents] = useState<WsMsg[]>([])
@@ -118,9 +117,9 @@ export function SessionTestPage() {
         } else if (msg.type === 'transcript') {
           // ASR recognized text — show as user message
           const text = (msg.text as string) || ''
-          if (text && text !== '(未识别到语音)') {
+          if (text && text !== '(no speech recognized)') {
             setMessages(prev => {
-              const filtered = prev.filter(m => !(m.role === 'user' && m.content === '🎤 (语音输入)'))
+              const filtered = prev.filter(m => !(m.role === 'user' && m.content === t('test.voiceInput')))
               return [...filtered, { role: 'user' as const, content: text, timestamp: now() }]
             })
           }
@@ -143,7 +142,7 @@ export function SessionTestPage() {
           const userText = (msg.user_text as string) || ''
           const agentText = (msg.agent_text as string) || ''
           setMessages(prev => {
-            const filtered = prev.filter(m => !(m.role === 'user' && m.content === '🎤 (语音输入)'))
+            const filtered = prev.filter(m => !(m.role === 'user' && m.content === t('test.voiceInput')))
             const hasUserMsg = filtered.some(m => m.role === 'user' && m.content === userText)
             // Replace the streaming assistant message with the final one
             const hasStreaming = filtered.length > 0 && filtered[filtered.length - 1]?.role === 'assistant'
@@ -172,13 +171,13 @@ export function SessionTestPage() {
             if (transcript) {
               // Replace placeholder with real ASR text
               setMessages(prev => {
-                const filtered = prev.filter(m => !(m.role === 'user' && m.content === '🎤 (语音输入)'))
+                const filtered = prev.filter(m => !(m.role === 'user' && m.content === t('test.voiceInput')))
                 return [...filtered, { role: 'user', content: transcript, timestamp: now() }]
               })
             }
           }
         } else if (msg.type === 'error') {
-          log(`错误: ${msg.message}`)
+          log(`${t('test.logError')}: ${msg.message}`)
           setPhase('listening')
           startListening()
         }
@@ -285,7 +284,7 @@ export function SessionTestPage() {
           vad.isSpeaking = false
           audio.processor.onaudioprocess = null // stop processing
           setPhase('thinking')
-          setMessages(prev => [...prev, { role: 'user', content: '🎤 (语音输入)', timestamp: new Date().toLocaleTimeString() }])
+          setMessages(prev => [...prev, { role: 'user', content: t('test.voiceInput'), timestamp: new Date().toLocaleTimeString() }])
 
           // Tell server: audio ended, process it
           if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -311,7 +310,7 @@ export function SessionTestPage() {
       setMessages([])
       connectStream(s.session_id)
     } catch (e) {
-      log(`失败: ${e}`)
+      log(`${t('test.logFailed')}: ${e}`)
     }
   }
 
@@ -347,11 +346,11 @@ export function SessionTestPage() {
 
   // Phase colors and labels
   const phaseConfig: Record<string, { color: string; label: string; pulse: boolean }> = {
-    idle: { color: '#27272a', label: '未开始', pulse: false },
-    listening: { color: '#22c55e', label: '聆听中...', pulse: true },
-    speaking: { color: '#06b6d4', label: '说话中...', pulse: true },
-    thinking: { color: '#f59e0b', label: 'AI 思考中...', pulse: true },
-    playing: { color: '#8b5cf6', label: 'AI 回复中...', pulse: true },
+    idle: { color: '#27272a', label: t('status.idle'), pulse: false },
+    listening: { color: '#22c55e', label: t('status.listening'), pulse: true },
+    speaking: { color: '#06b6d4', label: t('status.speaking'), pulse: true },
+    thinking: { color: '#f59e0b', label: t('status.thinking'), pulse: true },
+    playing: { color: '#8b5cf6', label: t('status.replying'), pulse: true },
   }
   const pc = phaseConfig[phase] || phaseConfig.idle
 
@@ -367,7 +366,7 @@ export function SessionTestPage() {
 
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>实时语音对话</h1>
+      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 16 }}>{t('test.heading')}</h1>
 
       {/* Config */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -376,7 +375,7 @@ export function SessionTestPage() {
             <label style={{ fontSize: 10, color: '#52525b', display: 'block', marginBottom: 2 }}>Agent</label>
             <select value={providers[type]} onChange={(e) => setProviders(p => ({ ...p, [type]: e.target.value }))}
               style={{ padding: '4px 8px', background: '#1e1e2e', color: '#a1a1aa', border: '1px solid #27272a', borderRadius: 4, fontSize: 11 }}>
-              <option value="ollama">Ollama 本地</option>
+              <option value="ollama">{t('test.providerOllama')}</option>
               <option value="mock">Mock</option>
               <option value="openai">OpenAI</option>
             </select>
@@ -404,10 +403,10 @@ export function SessionTestPage() {
               transition: 'all 0.2s',
             }}
           >
-            {translateMode ? '中 → EN' : '中 → 中'}
+            {translateMode ? t('test.modeTranslate') : t('test.modeNormal')}
           </button>
           <span style={{ fontSize: 10, color: '#52525b' }}>
-            {translateMode ? '说中文，AI 用英语回答' : '中文对话'}
+            {translateMode ? t('test.modeTranslateHint') : t('test.modeNormalHint')}
           </span>
         </div>
 
@@ -494,7 +493,7 @@ export function SessionTestPage() {
                 padding: '14px 40px', background: '#22c55e', color: '#fff', border: 'none',
                 borderRadius: 30, cursor: 'pointer', fontWeight: 700, fontSize: 16,
               }}>
-                开始对话
+                {t('test.btnStart')}
               </button>
             ) : (
               <>
@@ -525,14 +524,14 @@ export function SessionTestPage() {
                       padding: '8px 20px', background: '#f59e0b', color: '#000', border: 'none',
                       borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: 600,
                     }}>
-                      打断
+                      {t('test.btnInterrupt')}
                     </button>
                   )}
                   <button onClick={endConversation} style={{
                     padding: '8px 20px', background: '#ef4444', color: '#fff', border: 'none',
                     borderRadius: 20, cursor: 'pointer', fontSize: 13, fontWeight: 600,
                   }}>
-                    结束对话
+                    {t('test.btnEnd')}
                   </button>
                 </div>
               </>
@@ -542,9 +541,9 @@ export function SessionTestPage() {
 
         {/* Events */}
         <div style={{ background: '#111118', border: '1px solid #27272a', borderRadius: 12, height: 540, overflow: 'auto', padding: 10 }}>
-          <div style={{ fontSize: 10, color: '#3f3f46', marginBottom: 6, letterSpacing: 1 }}>事件流</div>
+          <div style={{ fontSize: 10, color: '#3f3f46', marginBottom: 6, letterSpacing: 1 }}>{t('test.events')}</div>
           {events.length === 0 ? (
-            <div style={{ color: '#1e1e2e', fontSize: 11, paddingTop: 30, textAlign: 'center' }}>等待中...</div>
+            <div style={{ color: '#1e1e2e', fontSize: 11, paddingTop: 30, textAlign: 'center' }}>{t('test.waiting')}</div>
           ) : (
             events.map((evt, i) => (
               <div key={i} style={{ padding: '3px 0', fontSize: 10, borderBottom: '1px solid #1a1a1f' }}>

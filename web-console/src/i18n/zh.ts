@@ -12,6 +12,7 @@ export const zh: Record<string, string> = {
   'nav.admin': '系统管理',
 
   // Common
+  'common.toggleLang': 'EN',
   'common.loading': '加载中...',
   'common.noData': '暂无数据',
   'common.refresh': '刷新',
@@ -34,6 +35,9 @@ export const zh: Record<string, string> = {
   'login.submit': '登录',
   'login.error': '用户名或密码错误',
   'login.remember': '记住登录',
+  'login.usernamePlaceholder': '请输入用户名',
+  'login.passwordPlaceholder': '请输入密码',
+  'login.devHint': '开发模式：admin/admin123, operator/operator123, viewer/viewer123',
 
   // Sessions
   'sessions.title': '会话管理',
@@ -53,6 +57,25 @@ export const zh: Record<string, string> = {
   'test.interrupt': '打断',
   'test.eventStream': '事件流',
   'test.noEvents': '暂无事件。开始会话后可查看事件流。',
+  'test.heading': '实时语音对话',
+  'test.events': '事件流',
+  'test.waiting': '等待中...',
+  'test.btnStart': '开始对话',
+  'test.btnInterrupt': '打断',
+  'test.btnEnd': '结束对话',
+  'test.providerOllama': 'Ollama 本地',
+  'test.modeTranslate': '中 → EN',
+  'test.modeNormal': '中 → 中',
+  'test.modeTranslateHint': '说中文，AI 用英语回答',
+  'test.modeNormalHint': '中文对话',
+  'test.voiceInput': '🎤 (语音输入)',
+  'status.idle': '未开始',
+  'status.listening': '聆听中...',
+  'status.speaking': '说话中...',
+  'status.thinking': 'AI 思考中...',
+  'status.replying': 'AI 回复中...',
+  'test.logError': '错误',
+  'test.logFailed': '失败',
 
   // Audio Debug
   'audio.title': '音频调试',

@@ -49,7 +49,7 @@ export function LoginPage({ onLogin }: LoginProps) {
             border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 13,
           }}
         >
-          {locale === 'zh' ? 'English' : '中文'}
+          {t('common.toggleLang')}
         </button>
       </div>
 
@@ -74,7 +74,7 @@ export function LoginPage({ onLogin }: LoginProps) {
             <input
               type="text" value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder={locale === 'zh' ? '请输入用户名' : 'Enter username'}
+              placeholder={t('login.usernamePlaceholder')}
               style={{
                 width: '100%', padding: '10px 12px', background: '#0a0a0f',
                 border: '1px solid #27272a', borderRadius: 6, color: '#e4e4e7',
@@ -90,7 +90,7 @@ export function LoginPage({ onLogin }: LoginProps) {
             <input
               type="password" value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={locale === 'zh' ? '请输入密码' : 'Enter password'}
+              placeholder={t('login.passwordPlaceholder')}
               style={{
                 width: '100%', padding: '10px 12px', background: '#0a0a0f',
                 border: '1px solid #27272a', borderRadius: 6, color: '#e4e4e7',
@@ -127,9 +127,7 @@ export function LoginPage({ onLogin }: LoginProps) {
         </form>
 
         <div style={{ marginTop: 24, fontSize: 11, color: '#3f3f46', textAlign: 'center' }}>
-          {locale === 'zh'
-            ? '开发模式：admin/admin123, operator/operator123, viewer/viewer123'
-            : 'Dev mode: admin/admin123, operator/operator123, viewer/viewer123'}
+          {t('login.devHint')}
         </div>
       </div>
     </div>

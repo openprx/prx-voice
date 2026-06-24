@@ -65,7 +65,7 @@ export function Layout({ username, onLogout }: LayoutProps) {
                 border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 11,
               }}
             >
-              {locale === 'zh' ? 'EN' : '中文'}
+              {t('common.toggleLang')}
             </button>
             <button
               onClick={onLogout}

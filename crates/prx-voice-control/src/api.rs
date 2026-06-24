@@ -910,7 +910,7 @@ async fn handle_realtime_stream(
                                 .unwrap_or_default();
                             asr_engine.reset();
 
-                            if asr_text.trim().is_empty() || asr_text == "(未识别到语音)" {
+                            if asr_text.trim().is_empty() || asr_text == "(no speech recognized)" {
                                 let msg = serde_json::json!({"type": "no_speech"});
                                 if let Ok(text) = serde_json::to_string(&msg) {
                                     let mut s = sink_main.lock().await;
@@ -1036,13 +1036,14 @@ async fn streaming_turn_inner(
 
     let (system_prompt, user_prompt) = if translate {
         (
-            "你是一个翻译助手。用户用中文跟你说话，你必须且只能用英文回答。\
-             禁止使用任何中文。只用English回复。回答简洁自然，1-3句。",
-            format!("请把下面这句话翻译成英文并自然地回应：「{user_text}」\n（只用英文回答）"),
+            "You are a translation assistant. The user speaks to you in Chinese; \
+             you must reply only in English. Do not use any Chinese. Keep replies \
+             concise and natural, 1-3 sentences.",
+            format!("Translate the following sentence into English and respond naturally: \"{user_text}\"\n(reply in English only)"),
         )
     } else {
         (
-            "你是一个语音助手。请用中文回答，回答要简洁自然，像正常对话一样。每次回答控制在2-3句话以内。",
+            "You are a voice assistant. Reply in Chinese, keeping answers concise and natural, like a normal conversation. Keep each reply within 2-3 sentences.",
             user_text.clone(),
         )
     };
@@ -1960,7 +1961,7 @@ async fn handle_stream_audio_end(
         text
     };
 
-    if asr_text.trim().is_empty() || asr_text == "(未识别到语音)" {
+    if asr_text.trim().is_empty() || asr_text == "(no speech recognized)" {
         ws_send_json(sink, serde_json::json!({"type": "no_speech", "sid": sid.to_string()})).await;
         ws_send_json(sink, serde_json::json!({
             "type": "status", "sid": sid.to_string(), "status": "listening"

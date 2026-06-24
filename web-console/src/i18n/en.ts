@@ -12,6 +12,7 @@ export const en: Record<string, string> = {
   'nav.admin': 'Admin',
 
   // Common
+  'common.toggleLang': '中文',
   'common.loading': 'Loading...',
   'common.noData': 'No data',
   'common.refresh': 'Refresh',
@@ -34,6 +35,9 @@ export const en: Record<string, string> = {
   'login.submit': 'Sign In',
   'login.error': 'Invalid username or password',
   'login.remember': 'Remember me',
+  'login.usernamePlaceholder': 'Enter username',
+  'login.passwordPlaceholder': 'Enter password',
+  'login.devHint': 'Dev mode: admin/admin123, operator/operator123, viewer/viewer123',
 
   // Sessions
   'sessions.title': 'Sessions',
@@ -53,6 +57,25 @@ export const en: Record<string, string> = {
   'test.interrupt': 'Interrupt',
   'test.eventStream': 'Event Stream',
   'test.noEvents': 'No events yet. Start a session to see events.',
+  'test.heading': 'Real-time Voice Chat',
+  'test.events': 'Event stream',
+  'test.waiting': 'Waiting...',
+  'test.btnStart': 'Start',
+  'test.btnInterrupt': 'Interrupt',
+  'test.btnEnd': 'End',
+  'test.providerOllama': 'Ollama (local)',
+  'test.modeTranslate': 'ZH → EN',
+  'test.modeNormal': 'ZH → ZH',
+  'test.modeTranslateHint': 'Speak Chinese, AI replies in English',
+  'test.modeNormalHint': 'Chinese conversation',
+  'test.voiceInput': '🎤 (voice input)',
+  'status.idle': 'Idle',
+  'status.listening': 'Listening...',
+  'status.speaking': 'Speaking...',
+  'status.thinking': 'AI thinking...',
+  'status.replying': 'AI replying...',
+  'test.logError': 'Error',
+  'test.logFailed': 'Failed',
 
   // Audio Debug
   'audio.title': 'Audio Debug',

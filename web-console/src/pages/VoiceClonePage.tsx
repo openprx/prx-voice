@@ -168,7 +168,7 @@ export function VoiceClonePage() {
       const res = await fetch(`${CLONE_API}/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: '你好，这是声纹克隆的测试语音。很高兴认识你。', speaker: id, lang: 'zh' }),
+        body: JSON.stringify({ text: 'Hello, this is a test sample for voice cloning. Nice to meet you.', speaker: id, lang: 'zh' }),
       })
       if (!res.ok) {
         setStatus('TTS failed')
