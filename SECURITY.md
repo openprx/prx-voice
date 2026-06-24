@@ -13,7 +13,7 @@ responsibly.
 
 **Do NOT open a public issue for security vulnerabilities.**
 
-Instead, please email security@prx.dev (or open a private security advisory).
+Instead, please email security@spanbrain.org (or open a private security advisory).
 
 Include:
 - Description of the vulnerability
